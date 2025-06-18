@@ -29,30 +29,25 @@ app.get('/api/random-meta-video', async (req, res) => {
 
         const page = await browser.newPage();
         await page.goto(randomUrl, { waitUntil: 'networkidle2', timeout: 60000 });
-        await page.waitForSelector('video[src]', { timeout: 15000 });
 
+        await page.waitForSelector('video[src]', { timeout: 15000 });
         const videoUrls = await page.$$eval('video[src]', els =>
             els.map(el => el.src).filter(Boolean)
         );
 
         if (!videoUrls.length) throw new Error('No videos found');
-
         const selectedVideoUrl = videoUrls[Math.floor(Math.random() * videoUrls.length)];
+
         const response = await axios.get(selectedVideoUrl, {
-            responseType: 'arraybuffer',
+            responseType: 'stream',
         });
 
-        const form = new FormData();
-        form.append('video', Buffer.from(response.data), {
-            filename: 'meta-video.mp4',
-            contentType: 'video/mp4',
-        });
-
-        res.set(form.getHeaders());
-        res.status(200).send(form.getBuffer());
+        res.setHeader('Content-Type', 'video/mp4');
+        res.setHeader('Content-Disposition', 'attachment; filename="random-meta-video.mp4"');
+        response.data.pipe(res);
     } catch (err) {
         console.error('❌ Error extracting video:', err.message);
-        res.status(500).json({ error: 'Failed to extract or return video', details: err.message });
+        res.status(500).json({ error: 'Failed to extract video', details: err.message });
     } finally {
         if (browser) await browser.close();
     }
