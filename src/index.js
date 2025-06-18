@@ -18,7 +18,7 @@ const adUrls = [
 ];
 
 app.get('/api/get-brand-url', (req, res) => {
-    res.json({ brandUrl: 'https://thepetlabco.com/' });
+    res.json({ brandUrl: 'https://thepetlabco.com/', email: "lautynievas09@gmail.com" });
 });
 
 app.get('/api/random-meta-video', async (req, res) => {
