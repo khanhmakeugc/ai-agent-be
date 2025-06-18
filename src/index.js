@@ -27,7 +27,7 @@ app.get('/api/get-user-video', async (req, res) => {
     try {
         browser = await puppeteer.launch({
             headless: 'new',
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+            args: ['--no-sandbox', '--disable-setuid-sandbox'],
         });
 
         const page = await browser.newPage();
@@ -52,24 +52,17 @@ app.get('/api/get-user-video', async (req, res) => {
 
                 const buffer = Buffer.from(response.data);
                 if (buffer.length <= MAX_SIZE_BYTES) {
-                    const form = new FormData();
-                    form.append('video', buffer, {
-                        filename: 'user-meta-video.mp4',
-                        contentType: 'video/mp4',
-                    });
-                    form.append('brandUrl', defaultBrandUrl);
-                    form.append('email', defaultEmail);
-
-                    res.set(form.getHeaders());
-                    return form.pipe(res);
+                    res.setHeader('Content-Type', 'video/mp4');
+                    res.setHeader('Content-Disposition', 'attachment; filename="user-meta-video.mp4"');
+                    return res.send(buffer);
                 }
             } catch (err) {
-                console.log(`⚠️ Falló al intentar usar video: ${err.message}`);
+                console.log(`⚠️ Video fallido: ${err.message}`);
                 continue;
             }
         }
 
-        return res.status(404).json({ error: 'No se encontró un video menor a 25MB' });
+        res.status(404).json({ error: 'No se encontró un video menor a 25MB.' });
 
     } catch (err) {
         console.error('❌ Error general:', err.message);
