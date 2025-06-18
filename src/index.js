@@ -24,6 +24,7 @@ const adUrls = [
 
 const CHROME_PATH = path.join(
     __dirname,
+    '..', // salís de /src
     'node_modules',
     'puppeteer',
     '.local-chromium',
