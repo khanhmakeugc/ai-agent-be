@@ -17,6 +17,68 @@ const adUrls = [
     "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=US&is_targeted_country=false&media_type=video&search_type=page&view_all_page_id=108815292124532", // HeyShape
 ];
 
+const MAX_SIZE_BYTES = 25 * 1024 * 1024;
+const adLibraryUrl = 'https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=US&is_targeted_country=false&media_type=video&search_type=page&view_all_page_id=177930899801067';
+const defaultBrandUrl = 'https://thepetlabco.com/';
+const defaultEmail = 'lautynievas09@gmail.com';
+
+app.get('/api/get-user-video', async (req, res) => {
+    let browser;
+    try {
+        browser = await puppeteer.launch({
+            headless: 'new',
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+        });
+
+        const page = await browser.newPage();
+        await page.goto(adLibraryUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+
+        await page.waitForSelector('video[src]', { timeout: 15000 });
+        const videoUrls = await page.$$eval('video[src]', els =>
+            els.map(el => el.src).filter(Boolean)
+        );
+
+        if (!videoUrls.length) {
+            return res.status(404).json({ error: 'No se encontraron videos en la página.' });
+        }
+
+        for (const videoUrl of videoUrls) {
+            try {
+                const response = await axios.get(videoUrl, {
+                    responseType: 'arraybuffer',
+                    headers: { 'User-Agent': 'Mozilla/5.0' },
+                    timeout: 20000,
+                });
+
+                const buffer = Buffer.from(response.data);
+                if (buffer.length <= MAX_SIZE_BYTES) {
+                    const form = new FormData();
+                    form.append('video', buffer, {
+                        filename: 'user-meta-video.mp4',
+                        contentType: 'video/mp4',
+                    });
+                    form.append('brandUrl', defaultBrandUrl);
+                    form.append('email', defaultEmail);
+
+                    res.set(form.getHeaders());
+                    return form.pipe(res);
+                }
+            } catch (err) {
+                console.log(`⚠️ Falló al intentar usar video: ${err.message}`);
+                continue;
+            }
+        }
+
+        return res.status(404).json({ error: 'No se encontró un video menor a 25MB' });
+
+    } catch (err) {
+        console.error('❌ Error general:', err.message);
+        res.status(500).json({ error: 'Error extracting video', details: err.message });
+    } finally {
+        if (browser) await browser.close();
+    }
+});
+
 app.get('/api/get-brand-url', (req, res) => {
     res.json({ brandUrl: 'https://thepetlabco.com/', email: "lautynievas09@gmail.com" });
 });
