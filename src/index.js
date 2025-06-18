@@ -17,6 +17,10 @@ const adUrls = [
     "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=US&is_targeted_country=false&media_type=video&search_type=page&view_all_page_id=108815292124532", // HeyShape
 ];
 
+app.get('/api/get-brand-url', (req, res) => {
+    res.json({ brandUrl: 'https://thepetlabco.com/' });
+});
+
 app.get('/api/random-meta-video', async (req, res) => {
     let browser;
     try {
