@@ -4,7 +4,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "postinstall": "puppeteer install",
+    "postinstall": "npx puppeteer install",
     "start": "node src/index.js",
     "dev": "node --watch src/index.js"
   },
