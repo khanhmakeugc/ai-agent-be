@@ -3,11 +3,6 @@ import puppeteer from 'puppeteer';
 import cors from 'cors';
 import axios from 'axios';
 import FormData from 'form-data'
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(cors());
@@ -22,28 +17,16 @@ const adUrls = [
     "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=US&is_targeted_country=false&media_type=video&search_type=page&view_all_page_id=108815292124532", // HeyShape
 ];
 
-const CHROME_PATH = path.join(
-    __dirname,
-    '..', // salís de /src
-    'node_modules',
-    'puppeteer',
-    '.local-chromium',
-    'linux-1375495',
-    'chrome-linux',
-    'chrome'
-);
-
-
 app.get('/api/random-meta-video', async (req, res) => {
     let browser;
     try {
         const randomUrl = adUrls[Math.floor(Math.random() * adUrls.length)];
 
         browser = await puppeteer.launch({
-            executablePath: CHROME_PATH,
             headless: 'new',
             args: ['--no-sandbox', '--disable-setuid-sandbox'],
         });
+
         const page = await browser.newPage();
         await page.goto(randomUrl, { waitUntil: 'networkidle2', timeout: 60000 });
         await page.waitForSelector('video[src]', { timeout: 15000 });
@@ -87,7 +70,6 @@ app.post('/api/get-video', async (req, res) => {
     let browser;
     try {
         browser = await puppeteer.launch({
-            executablePath: CHROME_PATH,
             headless: 'new',
             args: ['--no-sandbox', '--disable-setuid-sandbox'],
         });
