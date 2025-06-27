@@ -337,7 +337,7 @@ app.get("/api/meta/adsets/:campaignId", async (req, res) => {
 app.get("/auth/callback", async (req, res) => {
     const code = req.query.code;
     const redirectUri = "https://n8n-stabmediabackend.jdirlx.easypanel.host/auth/callback"; // URL de este mismo endpoint
-    const frontendUri = "https://make-ugc-frontned-lixr-g68yoe1nq-nievas1000s-projects.vercel.app//meta-auth-success"; // donde redirigir después de auth
+    const frontendUri = "https://make-ugc-frontned-lixr-g68yoe1nq-nievas1000s-projects.vercel.app/meta-auth-success"; // donde redirigir después de auth
     const appId = process.env.META_APP_ID;
     const appSecret = process.env.META_APP_SECRET;
 
