@@ -23,6 +23,11 @@ const adUrls = [
 const MAX_SIZE_BYTES = 25 * 1024 * 1024;
 const adLibraryUrl = 'https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=US&is_targeted_country=false&media_type=video&search_type=page&view_all_page_id=177930899801067';
 
+/**
+ * GET /api/get-user-video
+ * Extracts a video from a predefined Meta ad library URL.
+ * Returns the first video found that is under 25MB as an MP4 file.
+ */
 app.get('/api/get-user-video', async (req, res) => {
     let browser;
     try {
@@ -40,7 +45,7 @@ app.get('/api/get-user-video', async (req, res) => {
         );
 
         if (!videoUrls.length) {
-            return res.status(404).json({ error: 'No se encontraron videos en la página.' });
+            return res.status(404).json({ error: 'No videos found on the page.' });
         }
 
         for (const videoUrl of videoUrls) {
@@ -58,25 +63,34 @@ app.get('/api/get-user-video', async (req, res) => {
                     return res.send(buffer);
                 }
             } catch (err) {
-                console.log(`⚠️ Video fallido: ${err.message}`);
+                console.log(`⚠️ Failed video: ${err.message}`);
                 continue;
             }
         }
 
-        res.status(404).json({ error: 'No se encontró un video menor a 25MB.' });
+        res.status(404).json({ error: 'No video found under 25MB.' });
 
     } catch (err) {
-        console.error('❌ Error general:', err.message);
+        console.error('❌ General error:', err.message);
         res.status(500).json({ error: 'Error extracting video', details: err.message });
     } finally {
         if (browser) await browser.close();
     }
 });
 
+/**
+ * GET /api/get-brand-url
+ * Returns hardcoded brand URL and email for demo/testing purposes.
+ */
 app.get('/api/get-brand-url', (req, res) => {
-    res.json({ brandUrl: 'https://thepetlabco.com/', email: "lautynievas09@gmail.com" });
+    res.json({ brandUrl: 'https://thepetlabco.com/', email: "example@gmail.com" });
 });
 
+/**
+ * GET /api/random-meta-video
+ * Selects a random Meta ad URL from a predefined list, scrapes the page,
+ * and returns a random video file found on that page as an MP4 stream.
+ */
 app.get('/api/random-meta-video', async (req, res) => {
     let browser;
     try {
@@ -113,7 +127,12 @@ app.get('/api/random-meta-video', async (req, res) => {
     }
 });
 
-
+/**
+ * POST /api/get-video
+ * Scrapes a Meta or TikTok ad page (provided via `adUrl` in body) and extracts the video.
+ * If `?download=true`, returns the video as a downloadable MP4 file.
+ * Otherwise, returns platform, video URL, and base64-encoded video.
+ */
 app.post('/api/get-video', async (req, res) => {
     const { adUrl } = req.body;
     const download = req.query.download === 'true';
@@ -165,7 +184,11 @@ app.post('/api/get-video', async (req, res) => {
     }
 });
 
-// GET /api/meta/campaigns
+/**
+ * GET /api/meta/campaigns
+ * Fetches active ad campaigns from the first ad account linked to the user's Meta account.
+ * Requires a valid access token in the Authorization header.
+ */
 app.get("/api/meta/campaigns", async (req, res) => {
     const authHeader = req.headers.authorization;
     const accessToken = authHeader?.split(" ")[1];
@@ -174,7 +197,6 @@ app.get("/api/meta/campaigns", async (req, res) => {
 
 
     try {
-        // Obtener cuenta de anuncios del usuario
         const adAccountsRes = await fetch(
             `https://graph.facebook.com/v23.0/me/adaccounts?access_token=${accessToken}`
         );
@@ -184,7 +206,6 @@ app.get("/api/meta/campaigns", async (req, res) => {
 
         if (!accountId) return res.status(400).json({ error: "No ad account found" });
 
-        // Obtener campañas activas
         const campaignsRes = await fetch(
             `https://graph.facebook.com/v23.0/${accountId}/campaigns?access_token=${accessToken}&fields=id,name,status`
         );
@@ -195,9 +216,12 @@ app.get("/api/meta/campaigns", async (req, res) => {
     }
 });
 
-
 const upload = multer({ storage: multer.memoryStorage() });
-
+/**
+ * POST /api/meta/upload
+ * Uploads media files (images/videos) to Meta and creates ads in a specified campaign.
+ * Requires a valid Meta access token and campaignId. Supports optional text customization.
+ */
 app.post("/api/meta/upload", upload.array("files"), async (req, res) => {
     const authHeader = req.headers.authorization;
     const accessToken = authHeader?.split(" ")[1];
@@ -208,7 +232,6 @@ app.post("/api/meta/upload", upload.array("files"), async (req, res) => {
     const files = req.files;
 
     try {
-        // 1. Subir imágenes o videos a Meta
         const uploadedMedia = await Promise.all(
             files.map(async (file) => {
                 const uploadUrl = file.mimetype.startsWith("video/")
@@ -228,27 +251,6 @@ app.post("/api/meta/upload", upload.array("files"), async (req, res) => {
             })
         );
 
-        // 2. (opcional) Llamar IA para generar nuevo texto
-        let finalText = primaryText;
-        if (optimizeText === "true" && primaryText) {
-            const prompt = `Mejorá este texto para un anuncio atractivo: ${primaryText}`;
-            const aiRes = await fetch("https://api.anthropic.com/v1/complete", {
-                method: "POST",
-                headers: {
-                    "x-api-key": process.env.ANTHROPIC_API_KEY,
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    model: "claude-3-opus-20240229",
-                    prompt,
-                    max_tokens: 300,
-                }),
-            });
-            const aiJson = await aiRes.json();
-            finalText = aiJson.completion.trim();
-        }
-
-        // 3. Crear ad creatives con texto + imagen/video
         for (const media of uploadedMedia) {
             const creativeRes = await fetch(
                 `https://graph.facebook.com/v23.0/act_${campaignId}/adcreatives?access_token=${accessToken}`,
@@ -271,13 +273,12 @@ app.post("/api/meta/upload", upload.array("files"), async (req, res) => {
             );
             const creative = await creativeRes.json();
 
-            // 4. Crear el anuncio
             await fetch(`https://graph.facebook.com/v23.0/act_${campaignId}/ads?access_token=${accessToken}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     name: "Generated Ad",
-                    adset_id: "ADSET_ID", // opcional
+                    adset_id: "ADSET_ID",
                     creative: { creative_id: creative.id },
                     status: "PAUSED",
                 }),
@@ -291,6 +292,11 @@ app.post("/api/meta/upload", upload.array("files"), async (req, res) => {
     }
 });
 
+/**
+ * GET /api/meta/pages
+ * Fetches Facebook pages managed by the user.
+ * Requires a valid Meta access token.
+ */
 app.get("/api/meta/pages", async (req, res) => {
     const authHeader = req.headers.authorization;
     const accessToken = authHeader?.split(" ")[1];
@@ -302,12 +308,17 @@ app.get("/api/meta/pages", async (req, res) => {
             `https://graph.facebook.com/v23.0/me/accounts?access_token=${accessToken}`
         );
         const json = await result.json();
-        res.json(json.data); // cada item tiene id, name, access_token
+        res.json(json.data);
     } catch (err) {
         res.status(500).json({ error: "Error fetching pages", details: err });
     }
 });
 
+/**
+ * GET /api/meta/adsets/:campaignId
+ * Retrieves all ad sets for the specified campaign.
+ * Requires a valid Meta access token.
+ */
 app.get("/api/meta/adsets/:campaignId", async (req, res) => {
     const authHeader = req.headers.authorization;
     const accessToken = authHeader?.split(" ")[1];
@@ -333,16 +344,19 @@ app.get("/api/meta/adsets/:campaignId", async (req, res) => {
     }
 });
 
-
+/**
+ * GET /auth/callback
+ * Facebook OAuth callback. Exchanges the authorization code for an access token,
+ * then redirects the user to the frontend with the token in the URL.
+ */
 app.get("/auth/callback", async (req, res) => {
     const code = req.query.code;
-    const redirectUri = "https://n8n-stabmediabackend.jdirlx.easypanel.host/auth/callback"; // URL de este mismo endpoint
-    const frontendUri = "https://make-ugc-frontned-lixr-g68yoe1nq-nievas1000s-projects.vercel.app/meta-auth-success"; // donde redirigir después de auth
+    const redirectUri = "https://n8n-stabmediabackend.jdirlx.easypanel.host/auth/callback";
+    const frontendUri = "https://make-ugc-frontned-lixr-g68yoe1nq-nievas1000s-projects.vercel.app/meta-auth-success";
     const appId = process.env.META_APP_ID;
     const appSecret = process.env.META_APP_SECRET;
 
     try {
-        // Intercambiar el code por el token
         const tokenRes = await fetch(
             `https://graph.facebook.com/v23.0/oauth/access_token?client_id=${appId}&redirect_uri=${encodeURIComponent(
                 redirectUri
@@ -350,7 +364,6 @@ app.get("/auth/callback", async (req, res) => {
         );
         const tokenData = await tokenRes.json();
         if (tokenData.access_token) {
-            // Redirigir al frontend con el token y vencimiento
             const redirectWithToken = `${frontendUri}?token=${tokenData.access_token}&expires_in=${tokenData.expires_in}`;
             return res.redirect(redirectWithToken);
         } else {
@@ -362,6 +375,11 @@ app.get("/auth/callback", async (req, res) => {
     }
 });
 
+/**
+ * GET /api/meta/user
+ * Retrieves basic user info (id, name) from the Meta Graph API.
+ * Requires a valid access token.
+ */
 app.get("/api/meta/user", async (req, res) => {
     const authHeader = req.headers.authorization;
     const accessToken = authHeader?.split(" ")[1];
@@ -370,12 +388,17 @@ app.get("/api/meta/user", async (req, res) => {
     try {
         const response = await fetch(`https://graph.facebook.com/v23.0/me?access_token=${accessToken}`);
         const data = await response.json();
-        res.json(data); // { id, name }
+        res.json(data);
     } catch (err) {
         res.status(500).json({ error: "Error fetching user info", details: err });
     }
 });
 
+/**
+ * GET /api/meta/adaccounts
+ * Lists all ad accounts associated with the authenticated user.
+ * Requires a valid Meta access token.
+ */
 app.get("/api/meta/adaccounts", async (req, res) => {
     const authHeader = req.headers.authorization;
     const accessToken = authHeader?.split(" ")[1];
@@ -384,13 +407,17 @@ app.get("/api/meta/adaccounts", async (req, res) => {
     try {
         const response = await fetch(`https://graph.facebook.com/v23.0/me/adaccounts?access_token=${accessToken}`);
         const data = await response.json();
-        res.json(data.data); // devuelve un array de ad accounts
+        res.json(data.data);
     } catch (err) {
         res.status(500).json({ error: "Error fetching ad accounts", details: err });
     }
 });
 
-// GET /api/meta/ads/:campaignId
+/**
+ * GET /api/meta/campaigns/:adAccountId
+ * Fetches all campaigns associated with a specific ad account.
+ * Requires a valid Meta access token.
+ */
 app.get("/api/meta/campaigns/:adAccountId", async (req, res) => {
     const authHeader = req.headers.authorization;
     const accessToken = authHeader?.split(" ")[1];
@@ -409,6 +436,11 @@ app.get("/api/meta/campaigns/:adAccountId", async (req, res) => {
     }
 });
 
+/**
+ * GET /api/meta/ads/:campaignId
+ * Retrieves all ads for a specific campaign, including creative details.
+ * Requires a valid Meta access token.
+ */
 app.get("/api/meta/ads/:campaignId", async (req, res) => {
     const authHeader = req.headers.authorization;
     const accessToken = authHeader?.split(" ")[1];
@@ -432,6 +464,11 @@ app.get("/api/meta/ads/:campaignId", async (req, res) => {
     }
 });
 
+/**
+ * GET /api/meta/creative/:id
+ * Fetches creative details (image/video URLs, story spec) for a specific creative ID.
+ * Requires a valid Meta access token.
+ */
 app.get("/api/meta/creative/:id", async (req, res) => {
     const creativeId = req.params.id;
     const accessToken = req.headers.authorization?.split(" ")[1];
@@ -449,6 +486,11 @@ app.get("/api/meta/creative/:id", async (req, res) => {
     }
 });
 
+/**
+ * POST /api/meta/adsets
+ * Creates a new ad set within a given campaign using the same optimization goal
+ * as an existing ad set in that campaign. Requires ad account and campaign ID.
+ */
 app.post("/api/meta/adsets", async (req, res) => {
     const token = req.headers.authorization?.split("Bearer ")[1];
     const { ad_account_id, campaign_id, name } = req.body;
@@ -457,7 +499,6 @@ app.post("/api/meta/adsets", async (req, res) => {
     }
 
     try {
-        // 1. Tomar un AdSet existente dentro de la campaña
         const existingRes = await fetch(
             `https://graph.facebook.com/v17.0/${campaign_id}/adsets?fields=optimization_goal&limit=1`,
             { headers: { Authorization: `Bearer ${token}` } }
@@ -471,10 +512,8 @@ app.post("/api/meta/adsets", async (req, res) => {
             return res.status(400).json({ error: "No existing adsets in this campaign. Can't determine optimization_goal." });
         }
 
-        // 2. Usar el mismo optimization_goal
         const optimization_goal = existing.optimization_goal;
 
-        // 3. Crear nuevo AdSet con ese mismo optimization_goal
         const createRes = await fetch(
             `https://graph.facebook.com/v17.0/${ad_account_id}/adsets`,
             {
