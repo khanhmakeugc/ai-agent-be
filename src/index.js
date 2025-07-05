@@ -5,11 +5,37 @@ import axios from 'axios';
 import FormData from 'form-data'
 import multer from "multer";
 import dotenv from "dotenv";
+import morgan from 'morgan';
+import emailRouter from './emailService.js';
+import n8nRouter from './n8nEndPointService.js';
+import logger, { logAPI, logMeta, logApp } from './logger.js';
+import { 
+    errorHandler, 
+    asyncHandler, 
+    notFoundHandler, 
+    handleUnhandledRejection, 
+    handleUncaughtException,
+    gracefulShutdown,
+    ValidationError,
+    AuthenticationError,
+    NotFoundError
+} from './errorHandler.js';
+
 dotenv.config();
 
 const app = express();
+
+// Middleware
 app.use(cors());
 app.use(express.json());
+
+// Logging middleware
+app.use(morgan('combined', { stream: logger.stream }));
+app.use(logAPI.request);
+
+// Service routes
+app.use('/api/email', emailRouter);
+app.use('/api/n8n', n8nRouter);
 
 const adUrls = [
     "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=US&is_targeted_country=false&media_type=video&search_type=page&view_all_page_id=177930899801067", // PetLabCo
@@ -28,7 +54,9 @@ const adLibraryUrl = 'https://www.facebook.com/ads/library/?active_status=active
  * Extracts a video from a predefined Meta ad library URL.
  * Returns the first video found that is under 25MB as an MP4 file.
  */
-app.get('/api/get-user-video', async (req, res) => {
+app.get('/api/get-user-video', asyncHandler(async (req, res) => {
+    logger.info('Get User Video Request', { url: adLibraryUrl });
+    
     let browser;
     try {
         browser = await puppeteer.launch({
@@ -44,8 +72,10 @@ app.get('/api/get-user-video', async (req, res) => {
             els.map(el => el.src).filter(Boolean)
         );
 
+        logger.info('Video URLs Found', { count: videoUrls.length });
+
         if (!videoUrls.length) {
-            return res.status(404).json({ error: 'No videos found on the page.' });
+            throw new NotFoundError('No videos found on the page');
         }
 
         for (const videoUrl of videoUrls) {
@@ -63,20 +93,23 @@ app.get('/api/get-user-video', async (req, res) => {
                     return res.send(buffer);
                 }
             } catch (err) {
-                console.log(`⚠️ Failed video: ${err.message}`);
+                logger.warn('Video Download Failed', { 
+                    videoUrl, 
+                    error: err.message 
+                });
                 continue;
             }
         }
 
-        res.status(404).json({ error: 'No video found under 25MB.' });
+        throw new NotFoundError('No video found under 25MB');
 
     } catch (err) {
-        console.error('❌ General error:', err.message);
-        res.status(500).json({ error: 'Error extracting video', details: err.message });
+        logMeta.error('/api/get-user-video', err);
+        throw err;
     } finally {
         if (browser) await browser.close();
     }
-});
+}));
 
 /**
  * GET /api/get-brand-url
@@ -91,11 +124,13 @@ app.get('/api/get-brand-url', (req, res) => {
  * Selects a random Meta ad URL from a predefined list, scrapes the page,
  * and returns a random video file found on that page as an MP4 stream.
  */
-app.get('/api/random-meta-video', async (req, res) => {
+app.get('/api/random-meta-video', asyncHandler(async (req, res) => {
+    const randomUrl = adUrls[Math.floor(Math.random() * adUrls.length)];
+    
+    logger.info('Random Meta Video Request', { selectedUrl: randomUrl });
+    
     let browser;
     try {
-        const randomUrl = adUrls[Math.floor(Math.random() * adUrls.length)];
-
         browser = await puppeteer.launch({
             headless: 'new',
             args: ['--no-sandbox', '--disable-setuid-sandbox'],
@@ -109,23 +144,29 @@ app.get('/api/random-meta-video', async (req, res) => {
             els.map(el => el.src).filter(Boolean)
         );
 
-        if (!videoUrls.length) throw new Error('No videos found');
+        // logger.info('Random Video URLs Found', { count: videoUrls.length });
+
+        if (!videoUrls.length) throw new NotFoundError('No videos found');
+        
         const selectedVideoUrl = videoUrls[Math.floor(Math.random() * videoUrls.length)];
+        logger.info('Selected Video URL', { selectedVideoUrl });
 
         const response = await axios.get(selectedVideoUrl, {
             responseType: 'stream',
         });
 
+        logMeta.video('random', selectedVideoUrl, null);
+
         res.setHeader('Content-Type', 'video/mp4');
         res.setHeader('Content-Disposition', 'attachment; filename="random-meta-video.mp4"');
         response.data.pipe(res);
     } catch (err) {
-        console.error('❌ Error extracting video:', err.message);
-        res.status(500).json({ error: 'Failed to extract video', details: err.message });
+        logMeta.error('/api/random-meta-video', err);
+        throw err;
     } finally {
         if (browser) await browser.close();
     }
-});
+}));
 
 /**
  * POST /api/get-video
@@ -133,13 +174,19 @@ app.get('/api/random-meta-video', async (req, res) => {
  * If `?download=true`, returns the video as a downloadable MP4 file.
  * Otherwise, returns platform, video URL, and base64-encoded video.
  */
-app.post('/api/get-video', async (req, res) => {
+app.post('/api/get-video', asyncHandler(async (req, res) => {
     const { adUrl } = req.body;
     const download = req.query.download === 'true';
 
     if (!adUrl || (!adUrl.includes('facebook.com/ads/library') && !adUrl.includes('tiktok.com/ads/detail'))) {
-        return res.status(400).json({ error: 'Invalid ad URL (must be Meta or TikTok)' });
+        throw new ValidationError('Invalid ad URL (must be Meta or TikTok)');
     }
+
+    logger.info('Get Video Request', { 
+        adUrl, 
+        download, 
+        platform: adUrl.includes('tiktok.com') ? 'tiktok' : 'meta' 
+    });
 
     let browser;
     try {
@@ -153,15 +200,19 @@ app.post('/api/get-video', async (req, res) => {
 
         await page.waitForSelector('video[src]', { timeout: 15000 });
         const videoUrl = await page.$eval('video', (el) => el.src);
-        if (!videoUrl) throw new Error('Video URL not found');
+        if (!videoUrl) throw new NotFoundError('Video URL not found');
 
         const isTikTok = adUrl.includes('tiktok.com');
         const isMp4 = videoUrl.endsWith('.mp4');
+
+        logger.info('Video URL Found', { videoUrl, isTikTok, isMp4 });
 
         const downloadRes = await fetch(videoUrl);
         if (!downloadRes.ok) throw new Error('Failed to download video');
         const arrayBuffer = await downloadRes.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
+
+        logMeta.video('scrape', videoUrl, buffer);
 
         if (download) {
             res.setHeader('Content-Type', 'video/mp4');
@@ -177,44 +228,56 @@ app.post('/api/get-video', async (req, res) => {
         });
 
     } catch (err) {
-        console.error('Video scraping error:', err.message);
-        res.status(500).json({ error: 'Failed to extract video', details: err.message });
+        logMeta.error('/api/get-video', err);
+        throw err;
     } finally {
         if (browser) await browser.close();
     }
-});
+}));
 
 /**
  * GET /api/meta/campaigns
  * Fetches active ad campaigns from the first ad account linked to the user's Meta account.
  * Requires a valid access token in the Authorization header.
  */
-app.get("/api/meta/campaigns", async (req, res) => {
+app.get("/api/meta/campaigns", asyncHandler(async (req, res) => {
     const authHeader = req.headers.authorization;
     const accessToken = authHeader?.split(" ")[1];
 
-    if (!accessToken) return res.status(401).json({ error: "Missing token" });
+    if (!accessToken) throw new AuthenticationError("Missing token");
 
+    logger.info('Meta Campaigns Request');
 
     try {
         const adAccountsRes = await fetch(
             `https://graph.facebook.com/v23.0/me/adaccounts?access_token=${accessToken}`
         );
         const adAccountsData = await adAccountsRes.json();
-        console.log(adAccountsData);
+        
+        logMeta.api('/me/adaccounts', adAccountsData);
+        
         const accountId = adAccountsData.data?.[0]?.id;
 
-        if (!accountId) return res.status(400).json({ error: "No ad account found" });
+        if (!accountId) throw new NotFoundError("No ad account found");
 
         const campaignsRes = await fetch(
             `https://graph.facebook.com/v23.0/${accountId}/campaigns?access_token=${accessToken}&fields=id,name,status`
         );
         const campaignsData = await campaignsRes.json();
+        
+        logMeta.api(`/${accountId}/campaigns`, campaignsData);
+        
+        logger.info('Meta Campaigns Retrieved', { 
+            accountId, 
+            campaignCount: campaignsData.data?.length || 0 
+        });
+        
         res.json(campaignsData.data);
     } catch (err) {
-        res.status(500).json({ error: "Error fetching campaigns", details: err });
+        logMeta.error('/api/meta/campaigns', err);
+        throw err;
     }
-});
+}));
 
 const upload = multer({ storage: multer.memoryStorage() });
 /**
@@ -546,7 +609,29 @@ app.post("/api/meta/adsets", async (req, res) => {
 
 
 
+// Error handling middleware (must be last)
+app.use(notFoundHandler);
+app.use(logAPI.error);
+app.use(errorHandler);
+
+// Global error handlers
+process.on('unhandledRejection', handleUnhandledRejection);
+process.on('uncaughtException', handleUncaughtException);
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`✅ Server running at http://localhost:${PORT}`);
+const server = app.listen(PORT, () => {
+    logApp.startup(PORT);
 });
+
+// Graceful shutdown for server
+const gracefulShutdownServer = (signal) => {
+    logApp.shutdown(signal);
+    server.close(() => {
+        process.exit(0);
+    });
+};
+
+process.on('SIGTERM', () => gracefulShutdownServer('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdownServer('SIGINT'));

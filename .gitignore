@@ -1,5 +1,34 @@
+# Dependencies
 node_modules
 build
 npm-debug.log
+
+# Environment variables
 .env
+
+# OS files
 .DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Documentation files (README files)
+README.md
+EMAIL_SERVICE_README.md
+LOGGING_README.md
+SETUP_GUIDE.md
+
+# Scripts
+start.sh
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.temp
