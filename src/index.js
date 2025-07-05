@@ -27,7 +27,8 @@ const app = express();
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Logging middleware
 app.use(morgan('combined', { stream: logger.stream }));
@@ -35,7 +36,10 @@ app.use(logAPI.request);
 
 // Service routes
 app.use('/api/email', emailRouter);
-app.use('/api/n8n', n8nRouter);
+
+// N8N routes with multipart support
+const n8nUpload = multer({ storage: multer.memoryStorage() });
+app.use('/api/n8n', n8nUpload.any(), n8nRouter);
 
 const adUrls = [
     "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=US&is_targeted_country=false&media_type=video&search_type=page&view_all_page_id=177930899801067", // PetLabCo

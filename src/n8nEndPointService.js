@@ -14,11 +14,59 @@ const n8nRouter = express.Router();
  * Sends video and brand data to n8n webhook for Facebook ads recreation
  */
 n8nRouter.post('/facebook-ads-recreator', asyncHandler(async (req, res) => {
-    const { video, videoUrl, brandUrl, email, metaLink } = req.body;
+    // Check if request body exists
+    logger.info('N8N Facebook Ads Recreator Request Received', {
+        hasBody: !!req.body,
+        contentType: req.get('Content-Type'),
+        bodyKeys: req.body ? Object.keys(req.body) : [],
+        body: req.body
+    });
+
+    if (!req.body) {
+        throw new ValidationError('Request body is missing');
+    }
+    
+    // Handle both JSON and multipart/form-data
+    let video, videoUrl, brandUrl, email, metaLink;
+    
+    if (req.get('Content-Type')?.includes('multipart/form-data')) {
+        // Handle multipart/form-data
+        video = req.body.video;
+        videoUrl = req.body.videoUrl;
+        brandUrl = req.body.brandUrl;
+        email = req.body.email;
+        metaLink = req.body.metaLink;
+        
+        logger.info('Processing multipart/form-data request', {
+            hasVideo: !!video,
+            hasVideoUrl: !!videoUrl,
+            brandUrl,
+            email,
+            metaLink
+        });
+    } else {
+        // Handle JSON
+        ({ video, videoUrl, brandUrl, email, metaLink } = req.body);
+        
+        logger.info('Processing JSON request', {
+            hasVideo: !!video,
+            hasVideoUrl: !!videoUrl,
+            brandUrl,
+            email,
+            metaLink
+        });
+    }
+    
+    // Log the incoming request for debugging
+    logger.info('N8N Facebook Ads Recreator Request Received', {
+        hasBody: !!req.body,
+        bodyKeys: req.body ? Object.keys(req.body) : [],
+        contentType: req.get('Content-Type'),
+    });
     
     // Validate required fields
-    if (!video) {
-
+    // Handle "null" string from form data
+    if (!video || video === 'null') {
         if (!videoUrl) {
             throw new ValidationError('Missing required field: videoUrl or Video');
         }
@@ -30,9 +78,7 @@ n8nRouter.post('/facebook-ads-recreator', asyncHandler(async (req, res) => {
             email,
             metaLink: metaLink || 'uploaded',
         });
-        // throw new ValidationError('Missing required field: video');
     } else {
-
         logger.info('N8N Facebook Ads Recreator Request', {
             hasVideo: "Has video provided",
             brandUrl,
@@ -48,14 +94,11 @@ n8nRouter.post('/facebook-ads-recreator', asyncHandler(async (req, res) => {
     if (!email) {
         throw new ValidationError('Missing required field: email');
     }
-    
 
     try {
         let base64;
         if (videoUrl) {
-
             const isMp4 = videoUrl.endsWith('.mp4');
-
             logger.info('Video URL Found', { videoUrl, isMp4 });
 
             const downloadRes = await fetch(videoUrl);
@@ -64,10 +107,8 @@ n8nRouter.post('/facebook-ads-recreator', asyncHandler(async (req, res) => {
             const buffer = Buffer.from(arrayBuffer);
 
             logMeta.video('scrape', videoUrl, buffer);
-
             base64 = buffer.toString('base64');
         }
-        
 
         const formData = new FormData();
         formData.append("video", videoUrl ? base64 : video);
@@ -178,6 +219,27 @@ n8nRouter.post('/generate-brief', asyncHandler(async (req, res) => {
 
 
 /**
+ * POST /api/n8n/test-body
+ * Test endpoint to debug request body parsing
+ */
+n8nRouter.post('/test-body', asyncHandler(async (req, res) => {
+    logger.info('Test Body Request', {
+        hasBody: !!req.body,
+        bodyType: typeof req.body,
+        bodyKeys: req.body ? Object.keys(req.body) : [],
+        contentType: req.get('Content-Type'),
+        headers: req.headers,
+    });
+    
+    res.json({
+        success: true,
+        message: 'Test endpoint working',
+        receivedBody: req.body,
+        contentType: req.get('Content-Type'),
+    });
+}));
+
+/**
  * GET /api/n8n/health
  * Health check for n8n service
  */
@@ -189,7 +251,10 @@ n8nRouter.get('/health', asyncHandler(async (req, res) => {
         service: 'n8n',
         timestamp: new Date().toISOString(),
         endpoints: [
-            'POST /facebook-ads-recreator'
+            'POST /facebook-ads-recreator',
+            'POST /handle-create-brief',
+            'POST /generate-brief',
+            'POST /test-body'
         ]
     });
 }));
